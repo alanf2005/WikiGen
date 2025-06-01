@@ -20,15 +20,15 @@ response = client.chat.completions.create(
   model="gpt-4o-mini",
   store=True,
   messages=[
-    {"role": "user", "content": "Generate a concise and effective Google search query for use with the Custom Search API to retrieve the 10 most relevant" 
-     " and informative sources on the topic: '" + topic + "' in the category: '" + category + "'. Do not include specific website names or URLs. Output only"
+    {"role": "user", "content": "Generate a Google search query for use with the Custom Search API to retrieve the 10 most relevant" 
+     " and informative sources that can be used to make a wikipedia article on the topic: '" + topic + "' in the category: '" + category + "'. Do not include specific website names or URLs. Output only"
       " the search query string and nothing else."}
   ]
 )
 query = response.choices[0].message.content
 print(query)
 
-# make the search and get urls and titles
+# make the search using Custom Search API, getting urls and titles
 params = {
     "key": "AIzaSyDZIRv_gba5v_kCBOIxue6HziZJtElA5ho",
     "cx": "c56384b71d7394782",
@@ -77,7 +77,7 @@ for source in sources:
         model="gpt-4o-mini",
         store=True,
         messages=[
-             {"role": "user", "content": "Remove irrelevant text from the following text. Only keep information that is directly related to the topic '" +
+             {"role": "user", "content": "Remove irrelevant text from the following text. Only keep information that is directly related to information about the topic '" +
               topic + "' and category '" + category + "'. Output only relevant content if there is relevant content and only and an empty message if " 
               "the whole source is irrelevant: \n\n" + text}
         ]
@@ -90,35 +90,44 @@ for source in sources:
             'url': source['url']
         })
 
-#deduplicate filtered sources, keeping longer source if duplicate found
+#Use sentence transformer on each source to get vectors
+#Vertically stack vectors into a matrix(each row is a source) 
+#Get the cosine similarity matrix, then compare each rowkeeping longer source if duplicate found
 model = SentenceTransformer('all-MiniLM-L6-v2')
 texts = []
 for source in filtered_sources:
     texts.append(source['text'])
-embeddings = []
+embedding_vectors = []
 for text in texts:
     emb = model.encode(text, convert_to_numpy=True)
-    embeddings.append(emb)
+    embedding_vectors.append(emb)
 
-embeddings = np.vstack(embeddings)
-cosine_scores = cosine_similarity(embeddings)
-threshold = 0.825
+embeddings_matrix = np.vstack(embedding_vectors) 
+cosine_scores = cosine_similarity(embeddings_matrix) #cosine_scores[i][j] means similarity between rows i and j in embeddings
+threshold = 0.85
 deduplicated_sources = []
 used = set()
-index_map = {}
-
 b=True
 for i in range(len(filtered_sources)):
     if i in used:
         continue
-    longest=i
+    longest_index = i
+
+    duplicates = [i]
     for j in range(i + 1, len(filtered_sources)):
-        if cosine_scores[i][j] >= threshold:
-            print(f"Removing duplicate of:\n'{filtered_sources[i]['title']}' and '{filtered_sources[j]['title']}'")
-            b=False
+        if j not in used and cosine_scores[i][j] >= threshold:
+            duplicates.append(j)
             used.add(j)
-            if len(filtered_sources[j]['text']) > len(filtered_sources[longest]['text']):
-                longest = j
-    deduplicated_sources.append(filtered_sources[longest])
-    used.add(longest)
+
+            if len(filtered_sources[j]['text']) > len(filtered_sources[longest_index]['text']):
+                longest_index = j
+
+    used.add(i)  # Add i itself to the used set
+    deduplicated_sources.append(filtered_sources[longest_index])
+    used.add(i)
 if(b): print("No duplicates found")
+
+n=1
+for source in deduplicated_sources:
+    print("SOURCE " + str(n) + ": " + source['title'], "LINK:" + source['url'] + "\n", source['text'])
+    n+=1
