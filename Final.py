@@ -6,7 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 
-user_input = input("Enter topic and category separated by a comma: ")
+user_input = input("Enter topic and category(eg. person, location) separated by a comma: ")
 
 topic, category = [x.strip() for x in user_input.split(',')]
 print("Topic is", topic)
@@ -20,8 +20,9 @@ response = client.chat.completions.create(
   model="gpt-4o-mini",
   store=True,
   messages=[
+    {"role": "system", "content": "You are a search optimization assistant that generates precise Google search queries for use with an API."},
     {"role": "user", "content": "Generate a Google search query for use with the Custom Search API to retrieve the 10 most relevant" 
-     " and informative sources that can be used to make a wikipedia article on the topic: '" + topic + "' in the category: '" + category + "'. Do not include specific website names or URLs. Output only"
+     " and informative sources that can be used to create a Wikipedia article on the topic: '" + topic + "' in the category: '" + category + "'. Do not include specific website names or URLs. Output only"
       " the search query string and nothing else."}
   ]
 )
@@ -30,12 +31,16 @@ print(query)
 
 # make the search using Custom Search API, getting urls and titles
 params = {
-    "key": "AIzaSyDZIRv_gba5v_kCBOIxue6HziZJtElA5ho",
+    "key": "AIzaSyCKHsfaBqXwFXNwGQuhtO8iXdLeT57LScM",
     "cx": "c56384b71d7394782",
     "q": query,
-    "num": 10
+    "num": 15
 }
 response = requests.get("https://www.googleapis.com/customsearch/v1", params=params)
+if response.status_code != 200:
+    print("Google Search API request failed with status code:", response.status_code)
+    exit()
+
 results = response.json()
 sources = []
 for result in results.get("items", []):
@@ -77,8 +82,9 @@ for source in sources:
         model="gpt-4o-mini",
         store=True,
         messages=[
-             {"role": "user", "content": "Remove irrelevant text from the following text. Only keep information that is directly related to information about the topic '" +
-              topic + "' and category '" + category + "'. Output only relevant content if there is relevant content and only and an empty message if " 
+            {"role": "system", "content": "You are an information filter that extracts only content directly relevant to the given topic and category."},
+            {"role": "user", "content": "Remove irrelevant text from the following text. Only keep information that is directly related to information about the topic '" +
+            topic + "' and category '" + category + "'. Output only relevant content if there is relevant content and only and an empty message if " 
               "the whole source is irrelevant: \n\n" + text}
         ]
     ) 
@@ -122,12 +128,24 @@ for i in range(len(filtered_sources)):
             if len(filtered_sources[j]['text']) > len(filtered_sources[longest_index]['text']):
                 longest_index = j
 
-    used.add(i)  # Add i itself to the used set
+    used.add(i)
     deduplicated_sources.append(filtered_sources[longest_index])
     used.add(i)
 if(b): print("No duplicates found")
 
-n=1
+#output Wikipedia article
+final_source_text = ""
 for source in deduplicated_sources:
-    print("SOURCE " + str(n) + ": " + source['title'], "LINK:" + source['url'] + "\n", source['text'])
-    n+=1
+    final_source_text += "TITLE: " + source['title'] + " LINK:" + source['url'] + "\n" + source['text'] + "\n\n"    
+article_response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant that writes factual, well-structured Wikipedia-style articles."},
+        {"role": "user", "content": "Using the following text extracted from multiple sources, write a complete Wikipedia-style article on the topic '" + topic  + 
+         "in the category '" + category + 
+         "'. Use proper section headings and structure appropriate to the topic. Add a Bibliography section at the end. Here is the content:\n\n" + final_source_text}
+    ]
+)
+wikipedia_article = article_response.choices[0].message.content
+with open("wikipedia_article.txt", "w", encoding="utf-8") as f:
+    f.write(wikipedia_article)
