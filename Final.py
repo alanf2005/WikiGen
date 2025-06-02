@@ -12,7 +12,7 @@ topic, category = [x.strip() for x in user_input.split(',')]
 print("Topic is", topic)
 print("Category is", category)
 client = OpenAI(
-  api_key="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"
+  api_key=""
 )
 
 #generate search query using ChatGPT
